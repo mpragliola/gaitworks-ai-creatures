@@ -1,0 +1,46 @@
+name: Deploy To GitHub Pages
+
+# Same pattern as pedalboard-planner: build, then push the result to the gh-pages branch with keep_files so that
+# anything else living on that branch is never wiped. The site is served from https://mpragliola.github.io/gaitworks-ai-creatures/
+# (a project site is its own subfolder of the user site, so other repos' pages are untouched).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run tests
+        run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build
+        run: npm run build
+      - name: Deploy (site root of this project)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./dist
+          keep_files: true

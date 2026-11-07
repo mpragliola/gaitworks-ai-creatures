@@ -1,0 +1,262 @@
+<title>Gaitworks</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: engineering-plate workspace. A measured stage (editor or race track) on the left,
+   a four-tab bench on the right. Bone = ink, muscle = vermilion (contracted) to blue (extended). */
+:root {
+  --bg: #E6EBEE; --panel: #F4F7F8; --panel-2: #E8EDF0; --ink: #13202A; --ink-2: #4F606C; --line: #C5CED4;
+  --stage: #EEF3F5; --grid: #DCE4E8; --grid-2: #C6D1D8; --ground: #CBD5DB; --ground-top: #13202A;
+  --bone: #13202A; --joint: #F4F7F8; --muscle: #E2452B; --muscle-lo: #2F72D8;
+  --accent: #E2452B; --accent-ink: #FFFFFF; --pos: #2F72D8; --neg: #E2452B; --ok: #1E7F55;
+  --f-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --f-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B1218; --panel: #121C24; --panel-2: #18242E; --ink: #E5ECF0; --ink-2: #92A5B1; --line: #25333E;
+    --stage: #0E171E; --grid: #16232C; --grid-2: #213039; --ground: #1A2832; --ground-top: #A3B7C3;
+    --bone: #DDE6EB; --joint: #121C24; --muscle: #FF6B4E; --muscle-lo: #5E9BFF;
+    --accent: #FF6B4E; --accent-ink: #1A0C08; --pos: #5E9BFF; --neg: #FF6B4E; --ok: #46C089;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B1218; --panel: #121C24; --panel-2: #18242E; --ink: #E5ECF0; --ink-2: #92A5B1; --line: #25333E;
+  --stage: #0E171E; --grid: #16232C; --grid-2: #213039; --ground: #1A2832; --ground-top: #A3B7C3;
+  --bone: #DDE6EB; --joint: #121C24; --muscle: #FF6B4E; --muscle-lo: #5E9BFF;
+  --accent: #FF6B4E; --accent-ink: #1A0C08; --pos: #5E9BFF; --neg: #FF6B4E; --ok: #46C089;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 var(--f-body);
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, canvas:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.small { font-size: 12px; }
+.muted { color: var(--ink-2); margin: 6px 0 0; }
+
+.app { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand h1 { margin: 0; font: 700 22px/1 var(--f-display); letter-spacing: -0.02em; }
+.logo { width: 30px; height: 30px; color: var(--ink); }
+.logo .m { color: var(--accent); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 6px 13px; cursor: pointer; min-height: 32px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-checked="true"], .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.blurb { color: var(--ink-2); font: 12px var(--f-mono); }
+.savestate { margin-left: auto; font: 12px var(--f-mono); color: var(--ink-2); }
+
+.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; }
+.stage, .side { min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.stage { background: var(--stage); }
+.side { background: var(--panel); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.tool { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 0 10px; min-height: 32px; cursor: pointer; }
+.tool svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tool kbd { font: 10px var(--f-mono); color: var(--ink-2); }
+.tool[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tool[aria-pressed="true"] kbd { color: var(--bg); opacity: .7; }
+.hint { margin-left: auto; font: 11px var(--f-mono); color: var(--ink-2); }
+.canvas-wrap { position: relative; flex: 1; min-height: 260px; }
+#cv { position: absolute; inset: 0; display: block; touch-action: none; }
+.toast { position: absolute; left: 12px; bottom: 12px; max-width: calc(100% - 24px); background: var(--ink); color: var(--bg); padding: 8px 12px; border-radius: 8px; font-size: 13px; opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s; pointer-events: none; }
+.toast.show { opacity: 1; transform: none; }
+
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tab { flex: 1; border: 0; background: transparent; padding: 11px 6px 9px; cursor: pointer; font: 600 13px var(--f-display); color: var(--ink-2); border-bottom: 3px solid transparent; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.pane { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 18px; }
+.block + .block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+h2 { margin: 0 0 10px; font: 600 12px var(--f-display); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.btnrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 0 12px; min-height: 34px; cursor: pointer; }
+.btn:hover { border-color: var(--ink-2); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.wide { width: 100%; }
+.btn.sm { min-height: 28px; padding: 0 9px; font-size: 12px; }
+.btn.danger:hover { border-color: var(--neg); color: var(--neg); }
+select, input[type="text"], textarea { width: 100%; background: var(--stage); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+select { cursor: pointer; }
+textarea { font: 11px/1.4 var(--f-mono); height: 104px; resize: vertical; }
+.rng { display: block; margin: 0 0 10px; }
+.rng-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.rng output { color: var(--ink-2); font-size: 12px; }
+.rng input[type="range"] { width: 100%; margin: 4px 0 0; accent-color: var(--accent); }
+.check { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0; }
+.facts dt { color: var(--ink-2); }
+.facts dd { margin: 0; text-align: right; font: 13px var(--f-mono); font-variant-numeric: tabular-nums; }
+.sel-title { font: 600 15px var(--f-display); margin-bottom: 8px; }
+.warn { color: var(--neg); margin: 8px 0 0; font-size: 13px; }
+.layer-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+.layer-row .btn { margin-bottom: 10px; }
+.progress { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin: 12px 0 6px; }
+.progress div { height: 100%; width: 0; background: var(--accent); }
+canvas.side-cv { display: block; width: 100%; border-radius: 8px; background: var(--stage); border: 1px solid var(--line); }
+#brainCv { height: 200px; }
+#chartCv { height: 160px; margin-top: 12px; }
+.snaplist { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.snaplist li { border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: var(--panel-2); }
+.snaplist .meta { display: block; color: var(--ink-2); margin: 2px 0 8px; }
+.snaplist li.empty { background: transparent; border-style: dashed; color: var(--ink-2); }
+
+@media (min-width: 901px) {
+  html, body { height: 100%; }
+  .app { height: 100%; }
+}
+@media (max-width: 900px) {
+  .main { display: flex; flex-direction: column; }
+  .stage { height: min(64vh, 540px); min-height: 340px; }
+  .side { overflow: visible; }
+  .pane { overflow: visible; }
+  .savestate { margin-left: 0; }
+  .hint { margin-left: 0; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="6" cy="24" r="3" fill="var(--bg)"/><circle cx="26" cy="24" r="3" fill="var(--bg)"/><circle cx="16" cy="7" r="3" fill="var(--bg)"/>
+        <path d="M8.2 22 14 9.6"/><path class="m" d="M18 9.4 24 21" stroke="var(--accent)"/><path d="M9 24h14" stroke-dasharray="1 4.2"/>
+      </svg>
+      <h1>Gaitworks</h1>
+    </div>
+    <div class="seg" id="taskSeg" role="radiogroup" aria-label="Task">
+      <button role="radio" data-task="run">Run</button>
+      <button role="radio" data-task="jump">Jump</button>
+      <button role="radio" data-task="hurdles">Hurdles</button>
+      <button role="radio" data-task="hills">Hills</button>
+      <button role="radio" data-task="stairs">Stairs</button>
+    </div>
+    <span class="blurb" id="taskBlurb"></span>
+    <span class="savestate" id="saveState" aria-live="polite"></span>
+  </header>
+
+  <div class="main">
+    <section class="stage">
+      <div class="bar">
+        <div class="tools" id="barEdit">
+          <button class="tool" data-tool="select" aria-pressed="true"><svg viewBox="0 0 16 16"><path d="M4 2.5l8.5 5-4 1.2-1.5 4z" fill="currentColor"/></svg>Move <kbd>V</kbd></button>
+          <button class="tool" data-tool="joint" aria-pressed="false"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="4"/></svg>Joint <kbd>J</kbd></button>
+          <button class="tool" data-tool="bone" aria-pressed="false"><svg viewBox="0 0 16 16"><path d="M3.5 12.5l9-9" stroke-width="3"/></svg>Bone <kbd>B</kbd></button>
+          <button class="tool" data-tool="muscle" aria-pressed="false"><svg viewBox="0 0 16 16"><path d="M1.5 8h2.5l1.5-3.5 2.5 7 2-7L11.5 8h3"/></svg>Muscle <kbd>M</kbd></button>
+          <button class="tool" data-tool="erase" aria-pressed="false"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>Erase <kbd>X</kbd></button>
+          <span class="hint" id="hint"></span>
+        </div>
+        <div class="tools" id="barSim" hidden>
+          <div class="seg" id="modeSeg" role="group" aria-label="What to replay">
+            <button data-mode="top" aria-pressed="true">Best ten</button>
+            <button data-mode="champ" aria-pressed="false">Champion</button>
+          </div>
+          <div class="seg" id="speedSeg" role="group" aria-label="Replay speed">
+            <button data-speed="1" aria-pressed="true">1×</button>
+            <button data-speed="2" aria-pressed="false">2×</button>
+            <button data-speed="4" aria-pressed="false">4×</button>
+            <button data-speed="8" aria-pressed="false">8×</button>
+            <button data-speed="16" aria-pressed="false">16×</button>
+          </div>
+          <span class="hint" id="simInfo"></span>
+        </div>
+      </div>
+      <div class="canvas-wrap" id="wrap">
+        <canvas id="cv" tabindex="0" aria-label="Creature stage"></canvas>
+        <div class="toast" id="toast" role="status"></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="body" aria-selected="true">Body</button>
+        <button class="tab" role="tab" data-tab="brain" aria-selected="false">Brain</button>
+        <button class="tab" role="tab" data-tab="evolve" aria-selected="false">Evolve</button>
+        <button class="tab" role="tab" data-tab="archive" aria-selected="false">Archive</button>
+      </div>
+
+      <div class="pane" id="pane-body">
+        <div class="block">
+          <h2>Start from</h2>
+          <select id="presetSel" aria-label="Preset creature"></select>
+          <p class="muted" id="presetNote"></p>
+          <div class="btnrow" style="margin-top:10px"><button class="btn" id="undoBtn">Undo</button><button class="btn" id="clearBtn">Clear all</button></div>
+        </div>
+        <div class="block"><h2>Selection</h2><div id="inspector"></div></div>
+        <div class="block">
+          <h2>Creature</h2><dl class="facts" id="facts"></dl><p class="warn" id="bodyWarn" hidden></p>
+          <button class="btn primary wide" id="toEvolve" style="margin-top:14px">Evolve this creature</button>
+        </div>
+      </div>
+
+      <div class="pane" id="pane-brain" hidden>
+        <div class="block">
+          <h2>Network</h2>
+          <canvas class="side-cv" id="brainCv" aria-label="Neural network diagram"></canvas>
+          <p class="muted mono small" id="brainSummary"></p>
+        </div>
+        <div class="block">
+          <h2>Architecture</h2>
+          <div id="brainForm"></div>
+          <button class="btn primary wide" id="applyBrain">Apply architecture</button>
+          <p class="muted" id="brainWarn"></p>
+        </div>
+      </div>
+
+      <div class="pane" id="pane-evolve" hidden>
+        <div class="block">
+          <div class="btnrow"><button class="btn primary" id="runBtn">Evolve</button><button class="btn" id="stepBtn">One generation</button></div>
+          <label class="check" style="margin:12px 0 0"><input type="checkbox" id="turbo"> Turbo (more evolving per second, choppier replay)</label>
+          <div class="progress" aria-hidden="true"><div id="progBar"></div></div>
+          <p class="muted mono small" id="progText" style="margin-top:0"></p>
+        </div>
+        <div class="block">
+          <h2>Progress</h2>
+          <dl class="facts" id="evoFacts"></dl>
+          <canvas class="side-cv" id="chartCv" aria-label="Fitness per generation"></canvas>
+        </div>
+        <div class="block">
+          <h2>Evolution settings</h2>
+          <div id="evoForm"></div>
+          <button class="btn wide" id="shakeBtn" title="Keeps the two best, heavily mutates the rest to escape a rut">Shake up the population</button>
+          <button class="btn wide" id="restartBtn">Restart from random brains</button>
+        </div>
+      </div>
+
+      <div class="pane" id="pane-archive" hidden>
+        <div class="block"><h2>Autosave</h2><p class="muted" id="autoInfo" style="margin-top:0"></p></div>
+        <div class="block">
+          <h2>Snapshots</h2>
+          <div class="btnrow"><input type="text" id="snapName" placeholder="Name this snapshot" maxlength="60" aria-label="Snapshot name" style="flex:1;min-width:140px"><button class="btn primary" id="snapBtn">Save</button></div>
+          <ul class="snaplist" id="snapList"></ul>
+        </div>
+        <div class="block">
+          <h2>Back up or move</h2>
+          <div class="btnrow"><button class="btn" id="exportBtn">Export current</button><button class="btn" id="copyBtn">Copy</button><button class="btn" id="fileBtn">Save file</button></div>
+          <textarea id="xfer" spellcheck="false" aria-label="Export or import text" placeholder="Export writes JSON here. Paste JSON here to import."></textarea>
+          <div class="btnrow" style="margin-top:8px"><button class="btn" id="importBtn">Import from text</button><label class="btn" style="display:inline-flex;align-items:center">Import file<input type="file" id="importFile" accept=".json,application/json" hidden></label></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>

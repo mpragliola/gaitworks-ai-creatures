@@ -1,0 +1,12 @@
+{
+  "name": "gaitworks-ai-creatures",
+  "version": "1.0.0",
+  "description": "Design 2D creatures from joints, bones and muscles, then evolve neural-network brains to run, jump and climb.",
+  "private": true,
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "test": "node test/core.test.js",
+    "start": "npm run build && npx --yes serve dist"
+  },
+  "license": "UNLICENSED"
+}
