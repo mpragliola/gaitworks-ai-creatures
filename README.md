@@ -14,7 +14,7 @@ static page, and your evolved generations are stored so you never start from scr
 |---|---|
 | **Body** | Place joints, connect them with rigid bones (each with a weight) and muscles that contract and expand. Muscles attach to joints or to the midpoint of a bone. Presets: Crawler, Strider, Biped, Inchworm. |
 | **Brain** | A configurable multilayer network: 0–3 hidden layers of 2–32 neurons, tanh / leaky-ReLU / sine activations, optional rhythm clock, optional memory of its last outputs, optional "stuck sense". |
-| **Evolve** | CMA-ES (default) or a genetic algorithm. Turbo mode, adjustable seconds per simulation, muscle damping, "Shake up" to escape a rut. |
+| **Evolve** | CMA-ES (default) or a genetic algorithm. Auto-restarts when stalled, a gait gallery (MAP-Elites) of distinct styles, turbo mode, adjustable seconds per simulation, muscle damping, "Shake up" to escape a rut. |
 | **Tasks** | Run, Jump (height), Hurdles, Hills (three layouts scored together), Stairs (steps that keep getting taller). |
 | **Archive** | Autosave in the browser, named snapshots, and JSON export/import of a whole session. |
 
@@ -39,6 +39,34 @@ No dependencies are needed to build or test; Node 18+ is enough.
   spent barely moving. Dead creatures score −5.
 - **Optimizer:** a separable CMA-ES samples the population around a moving centre brain and adapts a step size per
   weight; the genetic algorithm (elites, tournament selection, crossover, Gaussian mutation) is still available.
+
+## The AI gears
+
+Every creature is steered by a small feed-forward neural network that is trained by evolution, not by gradients.
+
+**1. The brain (per creature, per physics step)**
+- *Inputs:* each muscle's stretch, each joint's position relative to the centre of mass, its velocity and ground contact,
+  body height and velocity, ground height 1, 2 and 3.5 m ahead, a bias, plus the optional clock (sin/cos), memory of the
+  last outputs and "stuck sense".
+- *Hidden layers:* 0-3 layers of 2-32 neurons (tanh, leaky-ReLU or sine).
+- *Outputs:* one tanh value per muscle, smoothed and slew-limited into a contraction target. The genome is simply the flat
+  list of all weights and biases.
+
+**2. The optimizer (per generation)**
+- **Separable CMA-ES (default).** Keeps one centre brain and a per-weight step size, samples the whole population around
+  it, and moves the centre towards the best half. Fast, but it is a single Gaussian, so it tends to settle on one gait.
+- **Genetic algorithm.** Elites, tournament selection, crossover and Gaussian mutation with stall-driven boosts and
+  fresh random blood.
+
+**3. The diversity gears (keep them from getting stuck)**
+- **Auto-restarts.** When CMA-ES stalls for 20 generations (or its step size collapses), a new run begins. Restarts
+  alternate between a *random brain with a larger population* (IPOP, to find a new basin) and a *branch from a random
+  elite in the gait archive with a small step* (to refine a different style). The global record is never lost.
+  Toggle it in the Evolve tab.
+- **Gait gallery (MAP-Elites).** Every evaluated brain is described by how it moves: the share of joints on the ground
+  and how often contacts change (step rate). An 8x8 grid keeps the best brain per cell, so distinct gaits (hopper,
+  crawler, galloper...) are stored side by side, even when a different style scores lower. Click a cell in the gallery
+  to watch that gait. The archive is saved with the session and clears when the task changes.
 
 ## Project layout
 
