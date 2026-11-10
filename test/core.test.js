@@ -36,4 +36,15 @@ for (let gen = 0; gen < 12; gen++) {
   Core.cmaUpdate(st, scores);
 }
 assert.ok(best > first, 'CMA-ES improved: ' + first.toFixed(2) + ' -> ' + best.toFixed(2));
+// Gait archive: descriptors are in range, better brains replace worse ones in a cell, dead scores are rejected.
+const ev = Core.evaluate(def, 'run', g, net);
+assert.ok(ev.desc.every((v) => v >= 0 && v <= 1), 'descriptor in range');
+const arch = Core.archiveNew();
+assert.ok(Core.archiveAdd(arch, g, 1, 1, [0.3, 0.3], 0));
+assert.ok(!Core.archiveAdd(arch, g, 0.5, 0.5, [0.3, 0.3], 1), 'worse brain does not replace');
+assert.ok(Core.archiveAdd(arch, g, 2, 2, [0.3, 0.3], 2), 'better brain replaces');
+assert.ok(!Core.archiveAdd(arch, g, -5, 0, [0.9, 0.9], 3), 'dead creature rejected');
+assert.ok(Core.archiveAdd(arch, g, 1, 1, [0.9, 0.1], 4));
+assert.strictEqual(Core.archiveCount(arch), 2);
+assert.ok(Core.archivePick(arch));
 console.log('core tests passed (first gen best ' + first.toFixed(2) + ', after 12 gens ' + best.toFixed(2) + ')');

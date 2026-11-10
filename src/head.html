@@ -234,6 +234,11 @@ canvas.side-cv { display: block; width: 100%; border-radius: 8px; background: va
           <canvas class="side-cv" id="chartCv" aria-label="Fitness per generation"></canvas>
         </div>
         <div class="block">
+          <h2>Gait gallery</h2>
+          <p class="muted small" style="margin-top:0">Best brain found for each style of moving (ground contact across, step rate up). Click a cell to watch it.</p>
+          <canvas class="side-cv" id="archCv" style="height:200px;cursor:pointer" aria-label="Gait gallery"></canvas>
+        </div>
+        <div class="block">
           <h2>Evolution settings</h2>
           <div id="evoForm"></div>
           <button class="btn wide" id="shakeBtn" title="Keeps the two best, heavily mutates the rest to escape a rut">Shake up the population</button>

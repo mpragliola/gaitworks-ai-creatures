@@ -313,6 +313,7 @@ function makeSim(def, taskId, genome, cfg, d, variant) {
     x: f(n), y: f(n), px: f(n), py: f(n), im: f(n), r: f(n), mu: f(n), mass: f(n), cd: f(n), cnx: f(n), cny: f(n), touch: f(n),
     ba: new Int32Array(nb), bb: new Int32Array(nb), bl: f(nb), bm: f(nb),
     ma1: new Int32Array(nm), ma2: new Int32Array(nm), mb1: new Int32Array(nm), mb2: new Int32Array(nm), ml0: f(nm), mk: f(nm), mf: f(nm), mr: f(nm), act: f(nm), lam: f(nm), out: f(nm),
+    pt: f(n), dSum: 0, tSum: 0, steps: 0,
     inp: new Float64Array(d.nIn), cx: 0, cy: 0, cvx: 0, cvy: 0, sz: 1, maxClear: 0, maxRise: 0, startCy: 0,
   };
   const nodeM = new Float64Array(n);
@@ -610,6 +611,10 @@ function stepSim(S, net) {
   const h = DT / SUB;
   for (let s = 0; s < SUB; s++) substep(S, h);
   S.t += DT;
+  /* behaviour statistics for the gait archive: share of joints on the ground, and how often contacts change */
+  let tc = 0, tr = 0;
+  for (let i = 0; i < S.n; i++) { const tt = S.touch[i]; tc += tt; if (tt !== S.pt[i]) tr++; S.pt[i] = tt; }
+  S.dSum += tc / S.n; S.tSum += tr; S.steps++;
   updateCom(S, false);
   if (S.dead) return;
   /* progress tracking: seconds since the furthest point moved on by 0.2 m, and an averaged speed */
@@ -620,16 +625,44 @@ function stepSim(S, net) {
   if (S.t >= S.task.duration - 1e-9 || S.cx > X1 - 8 || S.cx < X0 + 4) S.done = true;
 }
 
+/* Behaviour descriptor, both axes in 0..1: [ground contact share, contact changes per joint per second / 3] */
+function behaviour(S) {
+  if (!S.steps || S.t <= 0) return [0, 0];
+  return [clamp(S.dSum / S.steps, 0, 1), clamp(S.tSum / (S.n * S.t) / 3, 0, 1)];
+}
 function evaluate(def, taskId, genome, net) {
   const V = TASKS[taskId].variants ? TASKS[taskId].variants.length : 1;
-  let sc = 0, me = 0;
+  let sc = 0, me = 0, d0 = 0, d1 = 0;
   for (let v = 0; v < V; v++) {
     const S = makeSim(def, taskId, genome, net.cfg, net.d, v);
     while (!S.done) stepSim(S, net);
-    const r = taskResult(S);
-    sc += r.score; me += r.metric;
+    const r = taskResult(S), b = behaviour(S);
+    sc += r.score; me += r.metric; d0 += b[0]; d1 += b[1];
   }
-  return { score: sc / V, metric: me / V };
+  return { score: sc / V, metric: me / V, desc: [d0 / V, d1 / V] };
+}
+
+/* ---------- Gait archive (MAP-Elites): the best brain found for every distinct style of moving ---------- */
+const ARCH_N = 8;
+function archiveNew() { return { n: ARCH_N, cells: new Array(ARCH_N * ARCH_N).fill(null) }; }
+function archiveCell(d) {
+  const c = (v) => Math.min(ARCH_N - 1, Math.max(0, Math.floor(v * ARCH_N)));
+  return c(d[1]) * ARCH_N + c(d[0]);
+}
+function archiveAdd(a, g, score, metric, desc, gen) {
+  if (!Number.isFinite(score) || score <= -4.99 || !desc || !Number.isFinite(desc[0] + desc[1])) return false;
+  const k = archiveCell(desc), c = a.cells[k];
+  if (c && c.score >= score) return false;
+  a.cells[k] = { score, metric, desc: [desc[0], desc[1]], gen, g: Float32Array.from(g) };
+  return true;
+}
+function archiveCount(a) { let c = 0; for (const x of a.cells) if (x) c++; return c; }
+/* a random elite from the better half of the archive (null when empty) */
+function archivePick(a) {
+  const f = a.cells.filter(Boolean);
+  if (!f.length) return null;
+  f.sort((p, q) => q.score - p.score);
+  return f[Math.floor(Math.random() * Math.max(1, Math.ceil(f.length / 2)))];
 }
 
 /* ---------- Presets ---------- */
@@ -678,6 +711,7 @@ const PRESETS = {
 return {
   DT, SUB, X0, X1, TASKS, PRESETS, ACTS, MUSCLE_MASS, clamp, gauss, nodeRadius,
   getTerrain, dims, makeNet, randomGenome, mutate, breed, cmaInit, cmaSample, cmaUpdate, topoSig, totalMass,
+  ARCH_N, archiveNew, archiveCell, archiveAdd, archiveCount, archivePick, behaviour,
   PHYS, makeSim, stepSim, evaluate, muscleEndpoints, endNodes, taskResult, liveMetric, hurdlesCleared,
 };
 })();

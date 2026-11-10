@@ -21,7 +21,7 @@ const S = {
   def: clone(PRESETS.crawler.def),
   brain: { hidden: [12, 8], act: 'tanh', clock: true, hz: 1.5, memory: false, stuck: true },
   dur: {}, phys: { mdamp: 0 },
-  evo: { pop: 48, elite: 4, mut: 0.08, sigma: 0.3, cross: 0.5, fresh: 4, tourney: 3, adapt: true, opt: 'cma' },
+  evo: { pop: 48, elite: 4, mut: 0.08, sigma: 0.3, cross: 0.5, fresh: 4, tourney: 3, adapt: true, opt: 'cma', restart: true },
 };
 let net = null, dimsNow = null, lastSig = '';
 const DUR0 = {};
@@ -34,6 +34,7 @@ const Evo = {
   gen: 0, pop: [], scores: new Float64Array(0), metrics: new Float64Array(0), idx: 0,
   running: false, until: Infinity, turbo: false, history: [], best: null, top: [],
   statsDirty: true, chartDirty: true,
+  arch: Core.archiveNew(), descs: [], restarts: 0, runStart: 0,
 };
 const Replay = { sims: [], labels: [], mode: 'top', speed: 1, acc: 0, holdT: 0, camX: 0, refresh: true, random: true };
 const Ed = { tool: 'select', sel: null, pending: null, hover: null, drag: null, undo: [], ptr: [0, 0] };
@@ -97,6 +98,7 @@ function resetPopulation() {
   else Evo.pop = Array.from({ length: n }, () => Core.randomGenome(net));
   Evo.scores = new Float64Array(n); Evo.metrics = new Float64Array(n); Evo.idx = 0;
   Evo.gen = 0; Evo.history = []; Evo.best = null; Evo.top = []; Evo.lastGain = null; Evo.stall = 0; Evo.boost = 1;
+  Evo.arch = Core.archiveNew(); Evo.descs = []; Evo.restarts = 0; Evo.runStart = 0; Replay.pick = null;
   Evo.running = false; Evo.until = Infinity;
   Replay.refresh = true; Evo.statsDirty = Evo.chartDirty = true;
 }
@@ -118,6 +120,7 @@ function evoTick(budget) {
     const r = Core.evaluate(S.def, S.task, Evo.pop[Evo.idx], net);
     Evo.scores[Evo.idx] = Number.isFinite(r.score) ? r.score : -5;
     Evo.metrics[Evo.idx] = Number.isFinite(r.metric) ? r.metric : 0;
+    Evo.descs[Evo.idx] = r.desc;
     Evo.idx++;
     if (Evo.idx >= Evo.pop.length) {
       finishGeneration();
@@ -126,6 +129,18 @@ function evoTick(budget) {
   }
   Evo.statsDirty = true;
 }
+const RESTART_STALL = 20, RESTART_MIN = 25;
+/* Alternating restarts: odd ones start from a random brain with a larger population (IPOP) to find a new basin;
+   even ones branch from a random elite in the gait archive with a small step to refine a different style. Returns the new population. */
+function autoRestart() {
+  Evo.restarts++;
+  const n = S.evo.pop, fromArch = Evo.restarts % 2 === 0 ? Core.archivePick(Evo.arch) : null;
+  const lam = fromArch ? n : Math.min(n * 3, Math.round(n * Math.pow(1.5, Math.ceil(Evo.restarts / 2))));
+  Evo.cma = Core.cmaInit(net, lam, fromArch ? fromArch.g : null, fromArch ? 0.15 : 0.3);
+  Evo.lastGain = Evo.gen + 1; Evo.gainScore = -Infinity; Evo.stall = 0; Evo.boost = Evo.cma.sig; Evo.runStart = Evo.gen + 1;
+  toast('Restart ' + Evo.restarts + ': ' + (fromArch ? 'branching from a stored gait' : 'fresh random brain, ' + lam + ' creatures') + '. Old champions stay in the gallery.');
+  return Core.cmaSample(Evo.cma);
+}
 function finishGeneration() {
   const n = Evo.pop.length;
   if (Evo.lastGain == null) { Evo.lastGain = Evo.gen; Evo.gainScore = -Infinity; }
@@ -133,9 +148,13 @@ function finishGeneration() {
   for (let i = 0; i < n; i++) if (Evo.scores[i] > hi) { hi = Evo.scores[i]; bi0 = i; }
   if (hi > Evo.gainScore + 0.01 * Math.max(1, Math.abs(Evo.gainScore)) || !Number.isFinite(Evo.gainScore)) { Evo.gainScore = hi; Evo.lastGain = Evo.gen; }
   Evo.stall = Evo.gen - Evo.lastGain;
+  for (let i = 0; i < n; i++) Core.archiveAdd(Evo.arch, Evo.pop[i], Evo.scores[i], Evo.metrics[i], Evo.descs[i], Evo.gen);
   let next, order;
   if (Evo.cma && S.evo.opt === 'cma') {
     order = Core.cmaUpdate(Evo.cma, Evo.scores); next = Core.cmaSample(Evo.cma); Evo.boost = Evo.cma.sig;
+    /* a single Gaussian collapses onto one gait: when it stalls or its step size dies, start a new run */
+    const age = Evo.gen - Evo.runStart;
+    if (S.evo.restart !== false && ((Evo.stall >= RESTART_STALL && age >= RESTART_MIN) || (Evo.cma.sig < 0.004 && age >= 15))) next = autoRestart();
   } else {
     const br = Core.breed(Evo.pop, Evo.scores, { ...S.evo, stall: Evo.stall }, net);
     next = br.next; order = br.order; Evo.boost = br.boost;
@@ -163,10 +182,11 @@ function startReplay() {
   if (!canEvolve() || !Evo.pop.length) { Replay.sims = []; Replay.labels = []; updateSimInfo(); return; }
   let list;
   const champ = Replay.mode === 'champ' && Evo.best;
-  if (champ) list = [{ g: Evo.best.g, label: 'champion · gen ' + Evo.best.gen }];
+  if (Replay.pick) list = [Replay.pick];
+  else if (champ) list = [{ g: Evo.best.g, label: 'champion · gen ' + Evo.best.gen }];
   else if (Evo.top.length) list = Evo.top.slice(0, 10).map((g, i) => ({ g, label: '#' + (i + 1) }));
   else list = Evo.pop.slice(0, 3).map((g) => ({ g, label: 'untrained' }));
-  Replay.random = !(champ || Evo.top.length);
+  Replay.random = !(Replay.pick || champ || Evo.top.length);
   Replay.variant = (Replay.variant || 0) + 1;
   Replay.sims = list.map((o) => Core.makeSim(S.def, S.task, o.g, S.brain, dimsNow, Replay.variant));
   Replay.labels = list.map((o) => o.label);
@@ -600,6 +620,7 @@ function renderEvoStats() {
     ['Latest best', last ? fmt(last.mt, 2) + ' ' + T.unit : '–'],
     ['Record', Evo.best ? fmt(Evo.best.metric, 2) + ' ' + T.unit + ' (gen ' + Evo.best.gen + ')' : '–'],
     ['Population mean', last ? fmt(last.m, 2) : '–'],
+    ['Gaits found', Core.archiveCount(Evo.arch) + ' of ' + Core.ARCH_N * Core.ARCH_N + ' · restarts ' + Evo.restarts],
     ['Progress', !last ? '–' : (S.evo.opt === 'cma' && Evo.cma ? ((Evo.stall || 0) <= 5 ? 'improving' : 'stalled ' + Evo.stall + ' gens') + ', step size ' + Evo.cma.sig.toFixed(3) : (Evo.stall || 0) <= 5 ? 'improving (' + (Evo.stall || 0) + ' gens since gain)' : (S.evo.adapt ? 'stalled ' + Evo.stall + ' gens, mutation x' + (Evo.boost || 1).toFixed(1) : 'stalled ' + Evo.stall + ' gens'))],
   ];
   const dl = $('#evoFacts');
@@ -656,6 +677,39 @@ function drawChart() {
   g.textAlign = 'left'; g.fillStyle = P.accent; g.fillText('best', L + 6, T + 10);
   g.fillStyle = P.ink2; g.fillText('mean', L + 40, T + 10);
 }
+function archGeom(w, h) {
+  const L = 22, B = 16, N = Core.ARCH_N, cw = (w - L - 4) / N, ch = (h - B - 4) / N;
+  return { L, B, N, cw, ch, h };
+}
+function drawArch() {
+  const f = fitCanvas($('#archCv'));
+  if (!f) return;
+  const { g, w, h } = f, G = archGeom(w, h), cells = Evo.arch.cells;
+  g.clearRect(0, 0, w, h);
+  let hi = 0;
+  cells.forEach((c) => { if (c && c.score > hi) hi = c.score; });
+  for (let k = 0; k < cells.length; k++) {
+    const cx = k % G.N, cy = Math.floor(k / G.N), x = G.L + cx * G.cw, y = h - G.B - (cy + 1) * G.ch, c = cells[k];
+    g.fillStyle = P.grid2; g.fillRect(x + 1, y + 1, G.cw - 2, G.ch - 2);
+    if (!c) continue;
+    g.globalAlpha = 0.25 + 0.75 * Math.max(0, c.score) / (hi || 1);
+    g.fillStyle = P.accent; g.fillRect(x + 1, y + 1, G.cw - 2, G.ch - 2);
+    g.globalAlpha = 1;
+    if (Replay.pick && Replay.pick.cell === k) { g.strokeStyle = P.ink2; g.lineWidth = 2; g.strokeRect(x + 1.5, y + 1.5, G.cw - 3, G.ch - 3); }
+  }
+  g.font = '10px ' + MONO; g.fillStyle = P.ink2; g.textAlign = 'left';
+  g.fillText('ground contact →', G.L, h - 3);
+  g.save(); g.translate(10, h - G.B); g.rotate(-Math.PI / 2); g.fillText('step rate →', 0, 0); g.restore();
+}
+function pickArch(ev) {
+  const cv = $('#archCv'), r = cv.getBoundingClientRect(), G = archGeom(r.width, r.height);
+  const cx = Math.floor((ev.clientX - r.left - G.L) / G.cw), cy = Math.floor((r.height - G.B - (ev.clientY - r.top)) / G.ch);
+  if (cx < 0 || cy < 0 || cx >= G.N || cy >= G.N) return;
+  const k = cy * G.N + cx, c = Evo.arch.cells[k];
+  if (!c) return;
+  Replay.pick = { g: c.g, label: 'gait · ' + fmt(c.metric, 2) + ' ' + TASKS[S.task].unit + ' · gen ' + c.gen, cell: k };
+  startReplay(); Evo.chartDirty = true;
+}
 function renderEvoForm() {
   const f = $('#evoForm'), e = S.evo;
   f.textContent = '';
@@ -686,6 +740,7 @@ function renderEvoForm() {
   }));
   if (e.opt === 'cma') {
     f.append(el('p', 'note small', 'CMA-ES keeps one moving centre brain and samples the whole population around it. It learns which weights matter and how big each step should be, so there are no mutation settings to tune. If progress stalls, use "Shake up".'));
+    f.append(mkCheck('Auto-restart when stalled (new random run or branch from a stored gait)', e.restart !== false, (v) => { e.restart = v; saveSoon(); }));
   } else {
     f.append(mkRange('Elites kept unchanged', 0, 10, 1, e.elite, (v) => String(v), set('elite')));
     f.append(mkRange('Mutation rate', 0.01, 0.4, 0.01, e.mut, (v) => Math.round(v * 100) + '% of weights', set('mut')));
@@ -989,6 +1044,8 @@ function serialize(topK) {
     history: Evo.history.slice(-600),
     best: Evo.best ? { score: Evo.best.score, metric: Evo.best.metric, gen: Evo.best.gen, g: f32ToB64(Evo.best.g) } : null,
     top: tops.map(f32ToB64),
+    arch: Evo.arch.cells.map((c) => (c ? { s: c.score, m: c.metric, d: c.desc, gen: c.gen, g: f32ToB64(c.g) } : null)),
+    restarts: Evo.restarts,
   };
 }
 function sanitizeDef(d) {
@@ -1015,7 +1072,7 @@ function sanitizeBrain(b) {
 function sanitizeEvo(e) {
   e = e || {};
   const n = (k, a, b, dflt) => { const v = +e[k]; return Number.isFinite(v) ? clamp(v, a, b) : dflt; };
-  return { pop: Math.round(n('pop', 12, 120, 48)), elite: Math.round(n('elite', 0, 10, 4)), mut: n('mut', 0.01, 0.4, 0.08), sigma: n('sigma', 0.02, 1, 0.3), cross: n('cross', 0, 1, 0.5), fresh: Math.round(n('fresh', 0, 20, 4)), tourney: Math.round(n('tourney', 2, 8, 3)), adapt: e.adapt !== false, opt: e.opt === 'ga' ? 'ga' : 'cma' };
+  return { pop: Math.round(n('pop', 12, 120, 48)), elite: Math.round(n('elite', 0, 10, 4)), mut: n('mut', 0.01, 0.4, 0.08), sigma: n('sigma', 0.02, 1, 0.3), cross: n('cross', 0, 1, 0.5), fresh: Math.round(n('fresh', 0, 20, 4)), tourney: Math.round(n('tourney', 2, 8, 3)), adapt: e.adapt !== false, opt: e.opt === 'ga' ? 'ga' : 'cma', restart: e.restart !== false };
 }
 function applySession(o) {
   if (!o || o.v !== 1 || !o.creature) throw new Error('This is not a Gaitworks file.');
@@ -1032,6 +1089,12 @@ function applySession(o) {
   Evo.best = null;
   if (o.best && o.best.g) { const g = safe(o.best.g); if (g.length === net.nW) Evo.best = { score: +o.best.score, metric: +o.best.metric, gen: o.best.gen | 0, g }; }
   Evo.running = false; Evo.until = Infinity; Evo.idx = 0;
+  Evo.arch = Core.archiveNew(); Evo.descs = []; Evo.restarts = Math.max(0, o.restarts | 0); Evo.runStart = Evo.gen; Replay.pick = null;
+  if (Array.isArray(o.arch)) o.arch.slice(0, Evo.arch.cells.length).forEach((c) => {
+    if (!c || !c.g || !Array.isArray(c.d)) return;
+    const g = safe(c.g);
+    if (g.length === net.nW) Core.archiveAdd(Evo.arch, g, +c.s, +c.m, [+c.d[0], +c.d[1]], c.gen | 0);
+  });
   Evo.cma = null;
   if (S.evo.opt === 'cma' && (tops.length || Evo.best)) {
     Evo.top = tops;
@@ -1138,6 +1201,7 @@ function setTask(t) {
   if (t === S.task) return;
   S.task = t;
   Evo.history = []; Evo.best = null; Evo.top = []; Evo.idx = 0;
+  Evo.arch = Core.archiveNew(); Replay.pick = null;
   Replay.refresh = true; Evo.statsDirty = Evo.chartDirty = true;
   updateTaskUI(); renderEvoForm(); saveSoon();
   if (S.tab !== 'body') startReplay();
@@ -1168,7 +1232,7 @@ function wire() {
   $$('.tab').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
   $$('.tool').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
   $$('#modeSeg button').forEach((b) => b.addEventListener('click', () => {
-    Replay.mode = b.dataset.mode;
+    Replay.mode = b.dataset.mode; Replay.pick = null; Evo.chartDirty = true;
     $$('#modeSeg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     startReplay();
   }));
@@ -1197,6 +1261,7 @@ function wire() {
   });
   $('#turbo').addEventListener('change', (e) => { Evo.turbo = e.target.checked; });
   $('#shakeBtn').addEventListener('click', shakeUp);
+  $('#archCv').addEventListener('click', pickArch);
   twoStep($('#restartBtn'), 'Discard progress?', () => { resetPopulation(); refreshAll(); saveSoon(); toast('Fresh random brains.'); });
   $('#snapBtn').addEventListener('click', saveSnapshot);
   $('#snapName').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSnapshot(); });
@@ -1228,7 +1293,7 @@ function frame(now) {
     lastUI = now;
     if (S.tab === 'evolve') {
       if (Evo.statsDirty) renderEvoStats();
-      if (Evo.chartDirty) drawChart();
+      if (Evo.chartDirty) { drawChart(); drawArch(); }
     }
   }
   if (S.tab === 'brain' && frameNo % 2 === 0) drawBrain();
